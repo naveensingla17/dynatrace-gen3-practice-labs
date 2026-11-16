@@ -40,7 +40,7 @@ Follow the guides in this order:
 |---|-------|----------------|
 | 1 | [01-install-docker-and-oneagent.md](01-install-docker-and-oneagent.md) | Docker, Docker Compose, easyTravel, Grafana, OneAgent as a container, user tag |
 | 2 | [02-synthetic-monitoring-concepts.md](02-synthetic-monitoring-concepts.md) | Monitor types, locations, API monitoring, HTTP status codes, authentication |
-| 3 | [03-configure-synthetic-monitoring.md](03-configure-synthetic-monitoring.md) | Private Synthetic location, HTTP and browser monitors, synthetic and RUM pricing |
+| 3 | [03-configure-synthetic-monitoring.md](03-configure-synthetic-monitoring.md) | Private Synthetic location, HTTP, browser and network availability monitors, API monitoring with authentication |
 
 ## Repository structure
 
@@ -49,7 +49,7 @@ lab02-easytravel-docker-synthetic/
 ├── README.md
 ├── 01-install-docker-and-oneagent.md      # Docker, easyTravel, Grafana, OneAgent container, user tag
 ├── 02-synthetic-monitoring-concepts.md    # Monitor types, locations, status codes, authentication
-└── 03-configure-synthetic-monitoring.md   # Private location, HTTP and browser monitors, pricing
+└── 03-configure-synthetic-monitoring.md   # Private location, HTTP, browser and network monitors
 ```
 
 ## Lab steps
@@ -69,9 +69,11 @@ lab02-easytravel-docker-synthetic/
 | 11 | **Create the private location** | Create `SG-Punggol` on the Synthetic ActiveGate | [2. Configure the private location](03-configure-synthetic-monitoring.md#2-configure-the-private-location) |
 | 12 | **Create an HTTP monitor** | Check easyTravel from the private location, then test it on demand | [3. Configure an HTTP monitor](03-configure-synthetic-monitoring.md#3-configure-an-http-monitor) |
 | 13 | **Monitor a POST API** | Send a `POST` with a JSON body from an HTTP monitor | [3.4 Monitor a POST API](03-configure-synthetic-monitoring.md#34-monitor-a-post-api) |
-| 14 | **Create a browser monitor** | Load easyTravel in a real browser and validate the page content | [4. Configure a browser monitor](03-configure-synthetic-monitoring.md#4-configure-a-browser-monitor) |
-| 15 | **Record a clickpath** | Record a user journey with the Synthetic Recorder and run it as a browser monitor | [4.2 Clickpath with the Synthetic Recorder](03-configure-synthetic-monitoring.md#42-clickpath-with-the-synthetic-recorder) |
-| 16 | **Estimate the cost** | Calculate synthetic and RUM cost from the rate card | [5. Pricing](03-configure-synthetic-monitoring.md#5-synthetic-and-rum-pricing) |
+| 14 | **Monitor an API with authentication** | Store credentials in the credential vault and use them in an HTTP monitor | [3.5 POST API with authentication](03-configure-synthetic-monitoring.md#35-monitor-a-post-api-with-authentication) |
+| 15 | **Create a browser monitor** | Load easyTravel in a real browser and validate the page content | [4. Configure a browser monitor](03-configure-synthetic-monitoring.md#4-configure-a-browser-monitor) |
+| 16 | **Record a clickpath** | Record a user journey with the Synthetic Recorder and run it as a browser monitor | [4.2 Clickpath with the Synthetic Recorder](03-configure-synthetic-monitoring.md#42-clickpath-with-the-synthetic-recorder) |
+| 17 | **Create a network availability monitor** | Check the easyTravel host with ICMP, TCP and DNS from the private location | [5. Network availability monitor](03-configure-synthetic-monitoring.md#5-configure-a-network-availability-monitor) |
+| 18 | **Estimate the cost** | Calculate synthetic and RUM cost from the rate card | [License calculation](../notes/07-license-calculation.md) |
 
 > **Note:** OneAgent only fully monitors processes that start after it is installed. If you install it after the containers are running, restart the easyTravel and Grafana containers.
 
@@ -107,8 +109,10 @@ lab02-easytravel-docker-synthetic/
 - [x] Create the private location `SG-Punggol`
 - [x] Create and test an HTTP monitor
 - [x] Monitor a POST API
+- [ ] Monitor an API with authentication
 - [x] Create a browser monitor
 - [x] Record a clickpath with the Synthetic Recorder
+- [ ] Create a network availability monitor
 - [x] Estimate the synthetic and RUM cost
 
 ## Security note

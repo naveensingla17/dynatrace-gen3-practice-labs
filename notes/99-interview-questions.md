@@ -140,3 +140,11 @@ From the **Database queries** section you can run a backtrace to find the parent
 ## Q14. Do we need to restart the application after adding its URL to a frontend?
 
 **Answer:** No.
+
+## Q15. Can you do ping monitoring in Dynatrace from public location, like we can do for synthetic monitoring.
+
+**Answer:** No.
+
+## Q16. Which languade opentelemetry doesn't support
+
+**Answer:** C langauage is not supported

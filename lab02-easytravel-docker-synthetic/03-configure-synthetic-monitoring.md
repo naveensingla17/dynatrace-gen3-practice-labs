@@ -1,6 +1,8 @@
 # Lab 2 – Configure Synthetic Monitoring
 
-Set up a **private Synthetic location** on a Synthetic-enabled ActiveGate, then create an **HTTP monitor** (including a `POST` API check), a single-URL **browser monitor** and a **clickpath** monitor that check easyTravel from it. Finally, estimate what the monitors cost.
+Set up a **private Synthetic location** on a Synthetic-enabled ActiveGate, then create an **HTTP monitor** (including a `POST` API check), a single-URL **browser monitor**, a **clickpath** monitor and a **network availability monitor** that check easyTravel from it.
+
+For what the monitors cost, see [License calculation](../notes/07-license-calculation.md).
 
 For the concepts (monitor types, locations, authentication), see [02-synthetic-monitoring-concepts.md](02-synthetic-monitoring-concepts.md).
 
@@ -18,14 +20,18 @@ For the concepts (monitor types, locations, authentication), see [02-synthetic-m
    - [x] [3.2 Create the monitor](#32-create-the-monitor)
    - [x] [3.3 Test the monitor](#33-test-the-monitor)
    - [x] [3.4 Monitor a POST API](#34-monitor-a-post-api)
+   - [ ] [3.5 Monitor a POST API with authentication](#35-monitor-a-post-api-with-authentication)
+     - [ ] [3.5.1 Test the API first](#351-test-the-api-first)
+     - [ ] [3.5.2 Store the credentials](#352-store-the-credentials)
+     - [ ] [3.5.3 Create the monitor](#353-create-the-monitor)
+     - [ ] [3.5.4 Other authentication options](#354-other-authentication-options)
 4. [Configure a browser monitor](#4-configure-a-browser-monitor)
    - [x] [4.1 Single-URL browser monitor](#41-single-url-browser-monitor)
    - [x] [4.2 Clickpath with the Synthetic Recorder](#42-clickpath-with-the-synthetic-recorder)
    - [x] [4.3 Browser monitor settings](#43-browser-monitor-settings)
-5. [Synthetic and RUM pricing](#5-synthetic-and-rum-pricing)
-   - [x] [5.1 Rate card](#51-rate-card)
-   - [x] [5.2 HTTP monitor cost](#52-http-monitor-cost)
-   - [x] [5.3 Browser monitor cost](#53-browser-monitor-cost)
+5. [Configure a network availability monitor](#5-configure-a-network-availability-monitor)
+   - [ ] [5.1 Enable ICMP on the private location](#51-enable-icmp-on-the-private-location)
+   - [ ] [5.2 Create the monitor](#52-create-the-monitor)
 6. [Cleanup](#6-cleanup)
 7. [References](#references)
 
@@ -211,6 +217,89 @@ An HTTP monitor can also call an API with a request body. This example sends a `
 3. Click **Continue** and save the monitor
 4. Trigger it on demand (see [3.3 Test the monitor](#33-test-the-monitor)). A successful run returns `201 Created`.
 
+### 3.5 Monitor a POST API with authentication
+
+Most real APIs need a login. This example uses the free [DummyJSON](https://dummyjson.com/docs/auth) test API, which works like a real login flow:
+
+1. `POST /auth/login` with a username and password returns an **access token**
+2. `GET /auth/me` returns the logged-in user, but only if you send the token as `Authorization: Bearer <token>`. Without it, you get `401`.
+
+The monitor runs both requests in order and passes the token from the first to the second. The credentials are stored in the Dynatrace **credential vault**, so they never appear in the monitor configuration.
+
+> DummyJSON's demo user `emilys` / `emilyspass` is published in its docs for testing. For a real API, use a dedicated service account (see [Authentication requirements](02-synthetic-monitoring-concepts.md#31-requirements)).
+
+#### 3.5.1 Test the API first
+
+Test in Postman or with `curl`:
+
+```bash
+# 1. Log in and get the token (expect HTTP 200)
+TOKEN=$(curl -s -X POST https://dummyjson.com/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "emilys", "password": "emilyspass", "expiresInMins": 30}' \
+  | python3 -c 'import sys, json; print(json.load(sys.stdin)["accessToken"])')
+
+# 2. Call the protected endpoint with the token (expect HTTP 200; 401 without the token)
+curl -i https://dummyjson.com/auth/me -H "Authorization: Bearer $TOKEN"
+```
+
+#### 3.5.2 Store the credentials
+
+1. Open **Credential vault** (search for it in the Dynatrace menu) and click **Add credentials**
+2. Select **User and password**, enter `emilys` / `emilyspass`, and save
+3. Note the credential ID, for example `CREDENTIALS_VAULT-0000000000000000`
+
+#### 3.5.3 Create the monitor
+
+1. Go to **Synthetic → Create a synthetic monitor → HTTP monitor**
+2. Add request 1, **Login**:
+
+   | # | Setting | Value |
+   |---|---------|-------|
+   | 1 | URL | `https://dummyjson.com/auth/login` |
+   | 2 | HTTP method | `POST` |
+   | 3 | Additional HTTP headers | Header name `Content-Type`, header value `application/json` |
+   | 4 | Request body | The JSON below. The placeholders are replaced with the stored credentials at run time. |
+   | 5 | Post-execution script | The script below. It saves the token for the next request. |
+
+   ```json
+   {
+     "username": "{CREDENTIALS_VAULT-0000000000000000|username}",
+     "password": "{CREDENTIALS_VAULT-0000000000000000|password}",
+     "expiresInMins": 30
+   }
+   ```
+
+   ```javascript
+   var body = JSON.parse(response.getResponseBody());
+   api.setValue("accessToken", body.accessToken);
+   ```
+
+3. Add request 2, **Get current user**:
+
+   | # | Setting | Value |
+   |---|---------|-------|
+   | 1 | URL | `https://dummyjson.com/auth/me` |
+   | 2 | HTTP method | `GET` |
+   | 3 | Pre-execution script | The script below. It adds the token from request 1. |
+
+   ```javascript
+   request.addHeader("Authorization", "Bearer " + api.getValue("accessToken"));
+   ```
+
+4. Select the private location `SG-Punggol`, set the frequency, and save the monitor
+5. Trigger it on demand (see [3.3 Test the monitor](#33-test-the-monitor)). Both requests should return `200`. A `401` on request 2 means the token wasn't passed.
+
+#### 3.5.4 Other authentication options
+
+| # | Authentication | How to set it |
+|---|----------------|---------------|
+| 1 | **Basic** (username and password) | **Set authentication/authorization → Basic**, then select the credential. Dynatrace builds the `Authorization` header for you. |
+| 2 | **Static token** (API key or long-lived token) | Add a header `Authorization` with value `Bearer {CREDENTIALS_VAULT-0000000000000000\|token}`, using a **Token** credential |
+| 3 | **NTLM / Kerberos / OAuth 2.0 / certificate** | **Set authentication/authorization** and select the type. See [Supported authentication types](02-synthetic-monitoring-concepts.md#33-supported-authentication-types). |
+
+> The `{<credential ID>|username}`, `{<credential ID>|password}` and `{<credential ID>|token}` placeholders work in the request URL, headers and body.
+
 ---
 
 ## 4. Configure a browser monitor
@@ -240,7 +329,7 @@ The **Synthetic Recorder** is a Chrome extension that records the transactions y
 7. Continue, keep the default values, and set the frequency to **5 minutes**
 8. Save the monitor, then trigger it on demand to check that it works (see [3.3 Test the monitor](#33-test-the-monitor))
 
-> A clickpath is billed for **every action** in the recording, so keep it to the steps you need. See [5.3 Browser monitor cost](#53-browser-monitor-cost).
+> A clickpath is billed for **every action** in the recording, so keep it to the steps you need. See [3. Browser monitor cost](../notes/07-license-calculation.md#3-browser-monitor-cost).
 
 ### 4.3 Browser monitor settings
 
@@ -251,50 +340,36 @@ The **Synthetic Recorder** is a Chrome extension that records the transactions y
 
 ---
 
-## 5. Synthetic and RUM pricing
+## 5. Configure a network availability monitor
 
-Synthetic monitoring and RUM are billed **pay as you go**: you pay for every HTTP request or browser action a monitor runs, and for every real user session. The UI doesn't show the calculation, but you can see your usage in **Account Management** (bottom left) **→ Subscription**.
+> **Prerequisite:** [2. Configure the private location](#2-configure-the-private-location). Network availability monitors run **only** from private locations.
 
-### 5.1 Rate card
+A network availability monitor checks basic reachability of a host, without HTTP:
 
-| # | Capability | Billed per | Price | Price per unit |
-|---|------------|------------|-------|----------------|
-| 1 | HTTP monitor | Synthetic request | 1 USD per 1,000 requests | 0.001 USD |
-| 2 | Browser monitor | Synthetic action | 4.5 USD per 1,000 actions | 0.0045 USD |
-| 3 | Real User Monitoring (RUM) | Session | 2.25 USD per 1,000 sessions | 0.00225 USD |
-| 4 | RUM with Session Replay | Session | 4.5 USD per 1,000 sessions | 0.0045 USD |
+| # | Protocol | What it checks | Lab example |
+|---|----------|----------------|-------------|
+| 1 | **ICMP** | The host answers a ping | The easyTravel VM's private IP |
+| 2 | **TCP** | A port on the host is open and accepts connections | The easyTravel VM on port `32770` |
+| 3 | **DNS** | A host name resolves to an IP address | A public host name, for example `www.dynatrace.com` |
 
-Source: [Dynatrace pricing](https://www.dynatrace.com/pricing/)
+### 5.1 Enable ICMP on the private location
 
-Cost formula:
+ICMP is off by default on a private location. To use ICMP checks:
 
-```text
-cost = URLs × locations × executions per hour × hours × price per request (or action)
-```
+1. Go to **Settings → Web and mobile monitoring → Private Synthetic locations**
+2. Open `SG-Punggol`
+3. Turn on **Enable ICMP request type for Network Availability Monitors execution** and save
 
-### 5.2 HTTP monitor cost
+> Also allow ICMP (and the TCP port you check) from the ActiveGate to the target in the easyTravel VM's security group.
 
-Example (`UC_01`): 1 URL, 4 locations, runs every 5 minutes (12 times an hour), at **0.001 USD per request**.
+### 5.2 Create the monitor
 
-| Period | Requests | Cost (USD) |
-|--------|----------|------------|
-| 1 hour | 1 × 4 × 12 = **48** | 48 × 0.001 = **0.048** |
-| 1 day | 48 × 24 = **1,152** | **1.15** |
-| 1 year | 1,152 × 365 = **420,480** | **420.48** |
-
-> Cost grows linearly with each factor. Running every 15 minutes instead of 5 cuts the cost to a third; running from 2 locations instead of 4 halves it.
-
-### 5.3 Browser monitor cost
-
-The same example (`UC_01`) as a single-URL browser monitor (1 page load = 1 action per run), at **0.0045 USD per action**.
-
-| Period | Actions | Cost (USD) |
-|--------|---------|------------|
-| 1 hour | 1 × 4 × 12 = **48** | 48 × 0.0045 = **0.216** |
-| 1 day | 48 × 24 = **1,152** | **5.18** |
-| 1 year | 1,152 × 365 = **420,480** | **1,892.16** |
-
-> A clickpath monitor is billed for **every action** in the recorded journey. A 5-step clickpath costs 5× the single-URL example: about **9,460.80 USD per year**.
+1. Go to **Synthetic → Create a synthetic monitor → Network availability monitor**
+2. Enter the monitor name and select the protocol: **ICMP**, **TCP** or **DNS**
+3. Enter the target host (and the port, for TCP)
+4. For ICMP, keep the defaults for the number of packets, timeout and success rate, or adjust them
+5. Select the private location `SG-Punggol` and set the frequency
+6. Save the monitor, then trigger it on demand (see [3.3 Test the monitor](#33-test-the-monitor))
 
 ---
 
@@ -302,7 +377,7 @@ The same example (`UC_01`) as a single-URL browser monitor (1 page load = 1 acti
 
 When you finish the lab, remove the synthetic setup so it stops running and billing:
 
-1. Delete the HTTP, browser and clickpath monitors in **Synthetic**
+1. Delete the HTTP, browser, clickpath and network availability monitors in **Synthetic**
 2. Delete the private location `SG-Punggol`
 3. Uninstall the ActiveGate on the ActiveGate server:
 
@@ -316,7 +391,13 @@ When you finish the lab, remove the synthetic setup so it stops running and bill
 
 ## References
 
+- [DummyJSON auth API](https://dummyjson.com/docs/auth)
+- [Pre- and post-execution scripts for HTTP monitors](https://docs.dynatrace.com/docs/observe/digital-experience/synthetic-monitoring/http-monitors-classic/pre-and-post-scripting-for-http-monitors-classic)
+- [Supported authentication methods in Synthetic Monitoring](https://docs.dynatrace.com/docs/observe/digital-experience/synthetic-monitoring/general-information/synthetic-authentication)
+- [Configure a NAM monitor](https://docs.dynatrace.com/docs/observe/digital-experience/synthetic-monitoring/network-availability-monitors/create-a-nam-monitor)
+- [Network availability monitoring](https://docs.dynatrace.com/docs/observe/digital-experience/synthetic-monitoring/network-availability-monitors/network-availability-monitoring)
 - [Create a private Synthetic location](https://docs.dynatrace.com/docs/observe/digital-experience-classic/synthetic-monitoring-classic/private-synthetic-locations/create-a-private-synthetic-location)
 - [Manage private Synthetic locations – Browser autoupdate](https://docs.dynatrace.com/docs/observe/digital-experience-classic/synthetic-monitoring-classic/private-synthetic-locations/manage-private-synthetic-locations#:~:text=Data%20Explorer%20Classic-,Browser%20autoupdate,-You%20can%20Enable)
 - [Configure HTTP monitors in Classic](https://docs.dynatrace.com/docs/observe/digital-experience-classic/synthetic-monitoring-classic/http-monitors-classic/configure-http-monitors-classic)
 - [Dynatrace pricing](https://www.dynatrace.com/pricing/)
+- [Dynatrace API reference (Swagger)](https://api.dynatrace.com/spec/#/): fetch information from Dynatrace through its APIs
