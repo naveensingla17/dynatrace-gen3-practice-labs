@@ -107,6 +107,8 @@ wget https://github.com/Dynatrace/dynatrace-otel-collector/releases/download/v${
 rpm -ivh dynatrace-otel-collector_${VERSION}_Linux_x86_64.rpm
 ```
 
+> With `VERSION=0.60.0`, the `wget` line downloads `https://github.com/Dynatrace/dynatrace-otel-collector/releases/download/v0.60.0/dynatrace-otel-collector_0.60.0_Linux_x86_64.rpm`. For a newer version, check the [releases page](https://github.com/Dynatrace/dynatrace-otel-collector/releases).
+
 The package installs a `systemd` service named `dynatrace-otel-collector`.
 
 ### 2.2 Configure the Collector
@@ -149,15 +151,27 @@ service:
 EOF
 ```
 
+> - Keep `${env:DT_ENDPOINT}` and `${env:DT_PLATFORM_TOKEN}` in the file. The real values come from the `systemd` override in [2.3](#23-set-the-endpoint-and-token). If you hard-code them here, the override is ignored and the token sits in plain text.
+> - A **platform token** uses `Bearer <token>`. Only a **classic access token** uses `Api-Token <token>`.
+
 ### 2.3 Set the endpoint and token
 
-Pass them to the service as environment variables with a `systemd` override, so they're not in the config file:
+Pass them to the service as environment variables with a `systemd` override, so they're not in the config file. Use either option.
+
+**Option A – `systemctl edit`** (opens an editor and creates the override file for you):
 
 ```bash
 systemctl edit dynatrace-otel-collector
 ```
 
-Add these lines, then save and exit:
+**Option B – create the override file yourself:**
+
+```bash
+mkdir -p /etc/systemd/system/dynatrace-otel-collector.service.d
+vi /etc/systemd/system/dynatrace-otel-collector.service.d/override.conf
+```
+
+With either option, add these lines, then save and exit:
 
 ```ini
 [Service]
@@ -165,10 +179,16 @@ Environment="DT_ENDPOINT=https://<environment-id>.live.dynatrace.com/api/v2/otlp
 Environment="DT_PLATFORM_TOKEN=<YOUR_DYNATRACE_PLATFORM_TOKEN>"
 ```
 
+Restrict access to the override file, because it contains the token:
+
+```bash
+chmod 600 /etc/systemd/system/dynatrace-otel-collector.service.d/override.conf
+```
+
 ### 2.4 Start and check the Collector
 
 ```bash
-systemctl daemon-reload
+systemctl daemon-reload                       # load the override
 systemctl enable dynatrace-otel-collector
 systemctl restart dynatrace-otel-collector
 systemctl status dynatrace-otel-collector
