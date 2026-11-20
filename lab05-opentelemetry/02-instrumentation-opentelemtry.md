@@ -34,6 +34,7 @@ For the concepts (API, SDK, Collector, OTLP, signals), see [01-concepts.md](01-c
    - [ ] [2.2 Configure the Collector](#22-configure-the-collector)
    - [ ] [2.3 Set the endpoint and token](#23-set-the-endpoint-and-token)
    - [ ] [2.4 Start and check the Collector](#24-start-and-check-the-collector)
+   - [ ] [2.5 Validate the changes](#25-validate-the-changes)
 3. [Instrument PetClinic (VM-2)](#3-instrument-petclinic-vm-2)
    - [x] [3.1 Build PetClinic](#31-build-petclinic)
    - [x] [3.2 Download the Java agent](#32-download-the-java-agent)
@@ -126,10 +127,17 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  cumulativetodelta: {}
+
   batch: {}
 
 exporters:
-  otlp_http:
+  otlphttp/dynatrace:
     endpoint: "${env:DT_ENDPOINT}"
     headers:
       Authorization: "Bearer ${env:DT_PLATFORM_TOKEN}"
@@ -138,16 +146,16 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp_http]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/dynatrace]
     metrics:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp_http]
+      processors: [memory_limiter, cumulativetodelta, batch]
+      exporters: [otlphttp/dynatrace]
     logs:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp_http]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/dynatrace]
 EOF
 ```
 
@@ -196,6 +204,30 @@ systemctl status dynatrace-otel-collector
 journalctl -u dynatrace-otel-collector -f     # watch the logs
 ss -tlnp | grep -E '4317|4318'                # check the ports are listening
 ```
+
+### 2.5 Validate the changes
+
+Run these checks after every `systemctl edit` or change to `config.yaml`. `systemctl edit` runs `daemon-reload` for you, but a file you edit yourself (Option B) needs `systemctl daemon-reload`. Both need `systemctl restart dynatrace-otel-collector`.
+
+| # | Check | Command | Expected result |
+|---|-------|---------|-----------------|
+| 1 | The override is loaded | `systemctl status dynatrace-otel-collector` | A `Drop-In:` line listing `override.conf`, and `Active: active (running)` |
+| 2 | The unit and override contents | `systemctl cat dynatrace-otel-collector` | The main unit, then `# /etc/systemd/system/dynatrace-otel-collector.service.d/override.conf` with your `Environment=` lines |
+| 3 | The variable names reach systemd | `systemctl show dynatrace-otel-collector -p Environment --value \| tr ' ' '\n' \| cut -d= -f1` | `DT_ENDPOINT` and `DT_PLATFORM_TOKEN` (names only, so the token isn't shown) |
+| 4 | The running process has the endpoint | `tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value dynatrace-otel-collector)/environ \| grep DT_ENDPOINT` | Your `https://<environment-id>.live.dynatrace.com/api/v2/otlp` URL. If it's missing, the service wasn't restarted after the change |
+| 5 | The receiver accepts data | `curl -s -o /dev/null -w '%{http_code}\n' -X POST http://localhost:4318/v1/traces -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'` | `200` |
+| 6 | The export to Dynatrace works | `journalctl -u dynatrace-otel-collector --since "10 min ago" \| grep -iE 'error\|fail\|40[13]'` | No output. See the table below if errors appear |
+
+Common export errors in the logs:
+
+| # | Error | Likely cause |
+|---|-------|--------------|
+| 1 | `401 Unauthorized` | Wrong or revoked token, or `Api-Token` used with a platform token (use `Bearer`) |
+| 2 | `403 Forbidden` | Token is missing an `openpipeline:*:ingest` scope, or has expired |
+| 3 | `404 Not Found` | Wrong endpoint, for example `.apps.dynatrace.com` instead of `.live.dynatrace.com`, or a missing `/api/v2/otlp` |
+| 4 | Empty endpoint or `unsupported protocol scheme` | `DT_ENDPOINT` isn't set: the override isn't loaded or the service wasn't restarted |
+
+> Don't run `systemctl show -p Environment` without filtering it, or the full token is printed to your terminal and shell history.
 
 ---
 
@@ -304,11 +336,15 @@ Variables exported in your shell are **not** passed to a `systemd` service. Put 
    Group=root
    WorkingDirectory=/root/spring-petclinic
 
-   Environment="OTEL_EXPORTER_OTLP_ENDPOINT=https://<environment-id>.live.dynatrace.com/api/v2/otlp"
-   Environment="OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer <YOUR_DYNATRACE_PLATFORM_TOKEN>"
-   Environment="OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf"
-   Environment="OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta"
-   Environment="OTEL_RESOURCE_ATTRIBUTES=service.name=petclinic,service.version=1.0.1"
+  Environment="OTEL_SERVICE_NAME=spring-petclinic"
+  Environment="OTEL_EXPORTER_OTLP_ENDPOINT=https://nes80740.live.dynatrace.com/api/v2/otlp"
+  Environment="OTEL_EXPORTER_OTLP_HEADERS=Authorization=API-Token <Token>]"
+  Environment="OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf"
+  Environment="OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE=delta"
+  Environment="OTEL_RESOURCE_ATTRIBUTES=service.name=petclinic,service.version=1.0.1"
+  Environment="OTEL_TRACES_EXPORTER=otlp"
+  Environment="OTEL_METRICS_EXPORTER=otlp"
+  Environment="OTEL_LOGS_EXPORTER=otlp"
 
    ExecStart=/usr/bin/java -javaagent:/opt/otel/opentelemetry-javaagent.jar -jar /root/spring-petclinic/target/spring-petclinic-4.0.0-SNAPSHOT.jar
    StandardOutput=append:/opt/petclinic.log

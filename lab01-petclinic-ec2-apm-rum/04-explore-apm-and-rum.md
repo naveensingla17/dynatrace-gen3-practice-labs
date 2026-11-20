@@ -114,6 +114,13 @@ To see user sessions and behavior on a map:
 | 2 | **Synthetic user** | A Dynatrace synthetic monitor: a script that simulates user transactions |
 | 3 | **Robot** | Automated traffic such as search engine crawlers and bots, detected by user agent or IP address. Kept separate so it doesn't affect real user metrics. |
 
+example for Robot and Synthetic user
+1. Robot user 
+   1. for internal app like java app, a dummy employee doing transaction like real user on desktop where synthetic user cannot perform transactions
+   2. Manily run on PC
+2. Synthetic user 
+   1. Used for web based app
+   2. Mainly run on browser on cloud / internet
 ---
 
 ## 5. Conversion goals

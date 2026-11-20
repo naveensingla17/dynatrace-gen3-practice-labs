@@ -7,3 +7,4 @@
 5. OS monitoring
 6. Token changed to acount management
 7. Check for opentelemetry data
+8. Autonomous example
